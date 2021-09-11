@@ -1,6 +1,7 @@
 package goproc
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"time"
@@ -63,7 +64,10 @@ func GetProcesses(pids []int) (Processes, error) {
 func GetProcess(pid int) (*Process, error) {
 	ret := &Process{}
 
-	// TODO 渡されたpidがマイナス、0、1の時はエラーで返す
+	// 渡されたpidがマイナス、0、1の時はエラーで返す(そうじゃないとPanicになる)
+	if pid <= 1 {
+		return nil, fmt.Errorf("Don't get process, when pid is %d", pid)
+	}
 
 	p, _ := process.NewProcess(int32(pid))
 
