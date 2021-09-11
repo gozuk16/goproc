@@ -69,7 +69,10 @@ func GetProcess(pid int) (*Process, error) {
 		return nil, fmt.Errorf("Don't get process, when pid is %d", pid)
 	}
 
-	p, _ := process.NewProcess(int32(pid))
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return nil, err
+	}
 
 	ret.Name, _ = p.Name()
 
