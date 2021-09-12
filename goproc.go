@@ -52,7 +52,8 @@ func GetProcesses(pids []int) (Processes, error) {
 	for _, pid := range pids {
 		p, err := GetProcess(pid)
 		if err != nil {
-			// TODO 渡されたpids全部がerrorの時だけエラーにする
+			// errorならスキップする(全部エラーなら0個返す)
+			continue
 		}
 		ret = append(ret, *p)
 	}
