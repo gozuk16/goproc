@@ -1,8 +1,12 @@
 package goproc
 
 import (
+	"bufio"
 	"fmt"
 	"math"
+	"os"
+	"os/exec"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -13,6 +17,7 @@ import (
 
 const timeformat = "2006/01/02 15:04:05"
 
+// 子プロセス情報
 type ChildrenProcess struct {
 	Name    string `json:"name"`
 	Cmdline string `json:"cmdline"`
@@ -22,6 +27,7 @@ type ChildrenProcess struct {
 	Swap    string `json:"swap"`
 }
 
+// プロセス情報
 type Process struct {
 	Name       string            `json:"name"`
 	CpuPercent float64           `json:"cpuPercent"`
@@ -45,6 +51,16 @@ type Process struct {
 }
 
 type Processes []Process
+
+// プロセス起動・停止に必要な情報
+type ProcessParam struct {
+	Env        string `json:"env"`
+	CurrentDir string `json:"currentDir"`
+	StartCmd   string `json:"startCmd"`
+	StartArgs  string `json:"startArgs"`
+	StopCmd    string `json:"stopCmd"`
+	StopArgs   string `json:"stopArgs"`
+}
 
 // GetProcesses 指定されたPIDのプロセス情報をまとめて返す
 func GetProcesses(pids []int) (Processes, error) {
@@ -123,4 +139,58 @@ func GetProcess(pid int) (*Process, error) {
 	ret.Children = cp
 
 	return ret, nil
+}
+
+// StartProcess プロセス起動
+func StartProcess(param ProcessParam) error {
+	// Ctrl+Cを受け取る
+	quit := make(chan os.Signal)
+	signal.Notify(quit, os.Interrupt)
+
+	done := make(chan error, 1)
+	go newProcess(done, param)
+
+	select {
+	case <-quit:
+		fmt.Println("interrup signal accepted.")
+	case err := <-done:
+		if err != nil {
+			fmt.Println("exit.", err)
+			return err
+		}
+		fmt.Println("exit.")
+	}
+	return nil
+}
+
+// newProcess goroutineでプロセスを1つづつ起動
+func newProcess(done chan<- error, param ProcessParam) {
+
+	// process start
+	startArgs := strings.Fields(param.StartArgs)
+	cmd := exec.Command(param.StartCmd, startArgs...)
+	cmd.Dir = param.CurrentDir
+	// cmd.Env = startEnv
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+	err := cmd.Start()
+	if err != nil {
+		//log.Fatal(err)
+		done <- err
+	}
+
+	fmt.Println("--- stderr ---")
+	scanner2 := bufio.NewScanner(stderr)
+	for scanner2.Scan() {
+		fmt.Println(scanner2.Text())
+	}
+
+	fmt.Println("--- stdout ---")
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
+
+	done <- nil
+	close(done)
 }

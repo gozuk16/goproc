@@ -3,6 +3,7 @@ package goproc_test
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"testing"
 
 	"github.com/gozuk16/goproc"
@@ -67,4 +68,33 @@ func TestGetProcesses(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStartProcess(t *testing.T) {
+	usr, _ := user.Current()
+	p := []goproc.ProcessParam{
+		{CurrentDir: usr.HomeDir, StartCmd: "ls", StartArgs: "-l .."},
+		{CurrentDir: "/Users/xxx", StartCmd: "ls"},
+	}
+
+	cases := []struct {
+		param  goproc.ProcessParam
+		except bool
+		msg    string
+	}{
+		{p[0], true, "ls起動出来る(エラーがなければ内容は目視で確認)"},
+		{p[1], false, "存在しないディレクトリをセットしたらエラー"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.msg, func(t *testing.T) {
+			err := goproc.StartProcess(c.param)
+			if c.except && err != nil {
+				t.Errorf("StartProcess = %s, Failed", err)
+			} else if !c.except && err == nil {
+				t.Errorf("StartProcess nothing err, Failed")
+			}
+		})
+	}
+
 }
