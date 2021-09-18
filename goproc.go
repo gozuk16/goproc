@@ -3,6 +3,8 @@ package goproc
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -54,12 +56,12 @@ type Processes []Process
 
 // プロセス起動・停止に必要な情報
 type ProcessParam struct {
-	Env        string `json:"env"`
-	CurrentDir string `json:"currentDir"`
-	StartCmd   string `json:"startCmd"`
-	StartArgs  string `json:"startArgs"`
-	StopCmd    string `json:"stopCmd"`
-	StopArgs   string `json:"stopArgs"`
+	Env        []string `json:"env"`
+	CurrentDir string   `json:"currentDir"`
+	StartCmd   string   `json:"startCmd"`
+	StartArgs  string   `json:"startArgs"`
+	StopCmd    string   `json:"stopCmd"`
+	StopArgs   string   `json:"stopArgs"`
 }
 
 // GetProcesses 指定されたPIDのプロセス情報をまとめて返す
@@ -152,13 +154,13 @@ func StartProcess(param ProcessParam) error {
 
 	select {
 	case <-quit:
-		fmt.Println("interrup signal accepted.")
+		log.Println("interrup signal accepted.")
 	case err := <-done:
 		if err != nil {
-			fmt.Println("exit.", err)
+			log.Println("exit.", err)
 			return err
 		}
-		fmt.Println("exit.")
+		log.Println("exit.")
 	}
 	return nil
 }
@@ -166,27 +168,24 @@ func StartProcess(param ProcessParam) error {
 // newProcess goroutineでプロセスを1つづつ起動
 func newProcess(done chan<- error, param ProcessParam) {
 
-	// process start
 	startArgs := strings.Fields(param.StartArgs)
 	cmd := exec.Command(param.StartCmd, startArgs...)
 	cmd.Dir = param.CurrentDir
-	// cmd.Env = startEnv
+	if len(param.Env) > 0 {
+		cmd.Env = param.Env
+	}
+
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
+	stdoutStderr := io.MultiReader(stdout, stderr)
+
 	err := cmd.Start()
 	if err != nil {
-		//log.Fatal(err)
 		done <- err
 	}
 
-	fmt.Println("--- stderr ---")
-	scanner2 := bufio.NewScanner(stderr)
-	for scanner2.Scan() {
-		fmt.Println(scanner2.Text())
-	}
-
-	fmt.Println("--- stdout ---")
-	scanner := bufio.NewScanner(stdout)
+	fmt.Println("--- stdout/stderr ---")
+	scanner := bufio.NewScanner(stdoutStderr)
 	for scanner.Scan() {
 		fmt.Println(scanner.Text())
 	}

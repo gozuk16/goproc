@@ -75,6 +75,7 @@ func TestStartProcess(t *testing.T) {
 	p := []goproc.ProcessParam{
 		{CurrentDir: usr.HomeDir, StartCmd: "ls", StartArgs: "-l .."},
 		{CurrentDir: "/Users/xxx", StartCmd: "ls"},
+		{StartCmd: "top"},
 	}
 
 	cases := []struct {
@@ -84,6 +85,7 @@ func TestStartProcess(t *testing.T) {
 	}{
 		{p[0], true, "ls起動出来る(エラーがなければ内容は目視で確認)"},
 		{p[1], false, "存在しないディレクトリをセットしたらエラー"},
+		{p[2], true, "常駐プロセス(top)"},
 	}
 
 	for _, c := range cases {
