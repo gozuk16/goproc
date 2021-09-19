@@ -150,7 +150,8 @@ func StartProcess(param ProcessParam) error {
 	signal.Notify(quit, os.Interrupt)
 
 	done := make(chan error, 1)
-	go newProcess(done, param)
+	pid := make(chan int, 1)
+	go newProcess(done, pid, param)
 
 	select {
 	case <-quit:
@@ -161,13 +162,14 @@ func StartProcess(param ProcessParam) error {
 			return err
 		}
 		log.Println("exit.")
+	case <-pid:
+		log.Println("pid:", pid)
 	}
 	return nil
 }
 
 // newProcess goroutineでプロセスを1つづつ起動
-func newProcess(done chan<- error, param ProcessParam) {
-
+func newProcess(done chan<- error, pid chan<- int, param ProcessParam) {
 	startArgs := strings.Fields(param.StartArgs)
 	cmd := exec.Command(param.StartCmd, startArgs...)
 	cmd.Dir = param.CurrentDir
@@ -183,6 +185,10 @@ func newProcess(done chan<- error, param ProcessParam) {
 	if err != nil {
 		done <- err
 	}
+	log.Println("chan pid:", cmd.Process.Pid)
+	log.Println("chan exitcode:", cmd.ProcessState.ExitCode())
+	log.Println("chan isexit:", cmd.ProcessState.Exited())
+	pid <- cmd.Process.Pid
 
 	fmt.Println("--- stdout/stderr ---")
 	scanner := bufio.NewScanner(stdoutStderr)
@@ -191,5 +197,6 @@ func newProcess(done chan<- error, param ProcessParam) {
 	}
 
 	done <- nil
+	close(pid)
 	close(done)
 }
