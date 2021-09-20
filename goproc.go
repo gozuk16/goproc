@@ -143,33 +143,44 @@ func GetProcess(pid int) (*Process, error) {
 	return ret, nil
 }
 
+type Proc struct {
+	Pid int
+	Err error
+}
+
 // StartProcess プロセス起動
 func StartProcess(param ProcessParam) error {
 	// Ctrl+Cを受け取る
 	quit := make(chan os.Signal)
 	signal.Notify(quit, os.Interrupt)
 
-	done := make(chan error, 1)
-	pid := make(chan int, 1)
-	go newProcess(done, pid, param)
+	//done := make(chan error, 1)
+	//pid := make(chan int, 1)
+	proc := make(chan Proc, 1)
+	go newProcess(proc, param)
 
 	select {
 	case <-quit:
 		log.Println("interrup signal accepted.")
-	case err := <-done:
-		if err != nil {
-			log.Println("exit.", err)
-			return err
+	case p := <-proc:
+		if p.Err != nil {
+			log.Println("process start error.", p.Err)
+			return p.Err
+		} else if p.Pid > 0 {
+			log.Printf("start process(pid: %d)\n", p.Pid)
 		}
-		log.Println("exit.")
-	case <-pid:
-		log.Println("pid:", pid)
+		log.Println("process done.")
 	}
 	return nil
 }
 
 // newProcess goroutineでプロセスを1つづつ起動
-func newProcess(done chan<- error, pid chan<- int, param ProcessParam) {
+func newProcess(proc chan<- Proc, param ProcessParam) {
+	//defer close(pid)
+	defer close(proc)
+
+	var p Proc
+
 	startArgs := strings.Fields(param.StartArgs)
 	cmd := exec.Command(param.StartCmd, startArgs...)
 	cmd.Dir = param.CurrentDir
@@ -183,20 +194,17 @@ func newProcess(done chan<- error, pid chan<- int, param ProcessParam) {
 
 	err := cmd.Start()
 	if err != nil {
-		done <- err
-	}
-	log.Println("chan pid:", cmd.Process.Pid)
-	log.Println("chan exitcode:", cmd.ProcessState.ExitCode())
-	log.Println("chan isexit:", cmd.ProcessState.Exited())
-	pid <- cmd.Process.Pid
+		p.Err = err
+		proc <- p
+	} else {
+		p.Pid = cmd.Process.Pid
 
-	fmt.Println("--- stdout/stderr ---")
-	scanner := bufio.NewScanner(stdoutStderr)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
+		fmt.Println("--- stdout/stderr ---")
+		scanner := bufio.NewScanner(stdoutStderr)
+		for scanner.Scan() {
+			//fmt.Println(scanner.Text())
+		}
 	}
 
-	done <- nil
-	close(pid)
-	close(done)
+	proc <- p
 }
