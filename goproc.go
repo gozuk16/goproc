@@ -1,9 +1,7 @@
 package goproc
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"os"
@@ -188,23 +186,32 @@ func newProcess(proc chan<- Proc, param ProcessParam) {
 		cmd.Env = param.Env
 	}
 
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
-	stdoutStderr := io.MultiReader(stdout, stderr)
+	/*
+		stdout, _ := cmd.StdoutPipe()
+		stderr, _ := cmd.StderrPipe()
+		stdoutStderr := io.MultiReader(stdout, stderr)
+	*/
 
+	setService(cmd)
 	err := cmd.Start()
 	if err != nil {
 		p.Err = err
-		proc <- p
 	} else {
 		p.Pid = cmd.Process.Pid
 
-		fmt.Println("--- stdout/stderr ---")
-		scanner := bufio.NewScanner(stdoutStderr)
-		for scanner.Scan() {
-			//fmt.Println(scanner.Text())
-		}
+		/*
+			fmt.Println("--- stdout/stderr ---")
+			scanner := bufio.NewScanner(stdoutStderr)
+			for scanner.Scan() {
+				fmt.Println(scanner.Text())
+			}
+		*/
 	}
 
 	proc <- p
+}
+
+func setService(cmd *exec.Cmd) {
+	//cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	//cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }

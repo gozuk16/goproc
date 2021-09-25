@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/gozuk16/goproc"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +20,11 @@ func startCommand(cmd *cobra.Command, args []string) {
 
 func startAction() (err error) {
 	// start service
+	var p goproc.ProcessParam
+	p.StartCmd = "top"
+
+	goproc.StartProcess(p)
+
 	return nil
 }
 
