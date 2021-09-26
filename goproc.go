@@ -1,6 +1,7 @@
 package goproc
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -146,30 +147,28 @@ type Proc struct {
 	Err error
 }
 
-// StartProcess プロセス起動
-func StartProcess(param ProcessParam) error {
+// StartProcess プロセス起動。起動したらPIDを知らせてすぐ抜ける
+func StartProcess(param ProcessParam) (int, error) {
 	// Ctrl+Cを受け取る
 	quit := make(chan os.Signal)
 	signal.Notify(quit, os.Interrupt)
 
-	//done := make(chan error, 1)
-	//pid := make(chan int, 1)
 	proc := make(chan Proc, 1)
 	go newProcess(proc, param)
 
 	select {
 	case <-quit:
 		log.Println("interrup signal accepted.")
+		return -1, errors.New("interrup signal accepted.")
 	case p := <-proc:
 		if p.Err != nil {
 			log.Println("process start error.", p.Err)
-			return p.Err
+			return -1, p.Err
 		} else if p.Pid > 0 {
-			log.Printf("start process(pid: %d)\n", p.Pid)
+			return p.Pid, nil
 		}
-		log.Println("process done.")
 	}
-	return nil
+	return -1, errors.New("process stop")
 }
 
 // newProcess goroutineでプロセスを1つづつ起動
