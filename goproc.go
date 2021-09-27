@@ -147,6 +147,28 @@ type Proc struct {
 	Err error
 }
 
+// StartService 付属コマンド(service)を使ってバックグラウンドでサービスを起動。起動したらPIDを知らせてすぐ抜ける
+func StartService(param ProcessParam) (int, error) {
+	// 付属コマンド(service)は1つ目の引数に起動コマンドを受けとる
+	startArgs := []string{param.StartCmd}
+	startArgs = append(startArgs, strings.Fields(param.StartArgs)...)
+
+	// TODO: パスや名称に考慮して定数化する(変数かも)
+	cmd := exec.Command("service", startArgs...)
+	cmd.Dir = param.CurrentDir
+	if len(param.Env) > 0 {
+		cmd.Env = param.Env
+	}
+
+	err := cmd.Start()
+	if err != nil {
+		return -1, err
+	} else {
+		pid := cmd.Process.Pid
+		return pid, nil
+	}
+}
+
 // StartProcess プロセス起動。起動したらPIDを知らせてすぐ抜ける
 func StartProcess(param ProcessParam) (int, error) {
 	// Ctrl+Cを受け取る
