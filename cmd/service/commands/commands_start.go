@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/gozuk16/goproc"
 	"github.com/spf13/cobra"
@@ -31,6 +32,7 @@ func startAction(p goproc.ProcessParam) (err error) {
 	// start service
 	pid, err := goproc.StartProcess(p)
 	if err != nil {
+		log.Println(err)
 		return err
 	}
 	fmt.Println(pid)

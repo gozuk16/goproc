@@ -147,7 +147,8 @@ type Proc struct {
 	Err error
 }
 
-// StartService 付属コマンド(service)を使ってバックグラウンドでサービスを起動。起動したらPIDを知らせてすぐ抜ける
+// StartService 付属コマンド(service)を使ってバックグラウンドでサービスを起動
+// 付属コマンドは起動したらPIDを知らせてすぐ抜けるため、非同期にする必要なし
 func StartService(param ProcessParam) (int, error) {
 	// 付属コマンド(service)は1つ目の引数に起動コマンドを受けとる
 	startArgs := []string{param.StartCmd}
@@ -169,8 +170,25 @@ func StartService(param ProcessParam) (int, error) {
 	}
 }
 
-// StartProcess プロセス起動。起動したらPIDを知らせてすぐ抜ける
 func StartProcess(param ProcessParam) (int, error) {
+	cmd := exec.Command(param.StartCmd, param.StartArgs)
+	cmd.Dir = param.CurrentDir
+	if len(param.Env) > 0 {
+		cmd.Env = param.Env
+	}
+
+	err := cmd.Start()
+	if err != nil {
+		return -1, err
+	} else {
+		pid := cmd.Process.Pid
+		return pid, nil
+	}
+}
+
+// StartProcess 付属コマンド(service)で使用するプロセス起動
+// 非同期で起動して、PIDを知らせてすぐ抜ける
+func StartProcess2(param ProcessParam) (int, error) {
 	// Ctrl+Cを受け取る
 	quit := make(chan os.Signal)
 	signal.Notify(quit, os.Interrupt)
@@ -193,7 +211,7 @@ func StartProcess(param ProcessParam) (int, error) {
 	return -1, errors.New("process stop")
 }
 
-// newProcess goroutineでプロセスを1つづつ起動
+// newProcess goroutineでプロセスを起動
 func newProcess(proc chan<- Proc, param ProcessParam) {
 	//defer close(pid)
 	defer close(proc)
@@ -219,6 +237,8 @@ func newProcess(proc chan<- Proc, param ProcessParam) {
 		p.Err = err
 	} else {
 		p.Pid = cmd.Process.Pid
+		log.Println("Process.Pid:", cmd.Process.Pid)
+		log.Println("ProcessState.Success():", cmd.ProcessState.Success())
 
 		/*
 			fmt.Println("--- stdout/stderr ---")
