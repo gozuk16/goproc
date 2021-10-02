@@ -83,6 +83,39 @@ func TestStartProcess(t *testing.T) {
 		except bool
 		msg    string
 	}{
+		{p[0], true, "ls起動出来る"},
+		{p[1], false, "存在しないディレクトリをセットしたらエラー"},
+		{p[2], true, "常駐プロセス(top)"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.msg, func(t *testing.T) {
+			pid, err := goproc.StartProcess(c.param)
+			if c.except && err != nil {
+				t.Errorf("StartProcess = %s(%d), Failed", err, pid)
+			} else if !c.except && err == nil {
+				t.Errorf("StartProcess nothing err, Failed")
+			} else {
+				fmt.Printf("%s(pid: %d)\n", c.param.StartCmd, pid)
+			}
+		})
+	}
+
+}
+
+func TestRunProcess(t *testing.T) {
+	usr, _ := user.Current()
+	p := []goproc.ProcessParam{
+		{CurrentDir: usr.HomeDir, StartCmd: "ls", StartArgs: "-l .."},
+		{CurrentDir: "/Users/xxx", StartCmd: "ls"},
+		{StartCmd: "top"},
+	}
+
+	cases := []struct {
+		param  goproc.ProcessParam
+		except bool
+		msg    string
+	}{
 		{p[0], true, "ls起動出来る(エラーがなければ内容は目視で確認)"},
 		{p[1], false, "存在しないディレクトリをセットしたらエラー"},
 		{p[2], true, "常駐プロセス(top)"},
@@ -90,11 +123,13 @@ func TestStartProcess(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.msg, func(t *testing.T) {
-			err := goproc.StartProcess(c.param)
+			err := goproc.RunProcess(c.param)
 			if c.except && err != nil {
 				t.Errorf("StartProcess = %s, Failed", err)
 			} else if !c.except && err == nil {
 				t.Errorf("StartProcess nothing err, Failed")
+			} else {
+				fmt.Printf("%s\n", c.param.StartCmd)
 			}
 		})
 	}

@@ -1,14 +1,16 @@
 package goproc
 
 import (
-	"errors"
+	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
 	"os/exec"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
@@ -142,11 +144,6 @@ func GetProcess(pid int) (*Process, error) {
 	return ret, nil
 }
 
-type Proc struct {
-	Pid int
-	Err error
-}
-
 // StartService 付属コマンド(service)を使ってバックグラウンドでサービスを起動
 // 付属コマンドは起動したらPIDを知らせてすぐ抜けるため、非同期にする必要なし
 func StartService(param ProcessParam) (int, error) {
@@ -170,6 +167,8 @@ func StartService(param ProcessParam) (int, error) {
 	}
 }
 
+// StartProcess 付属コマンド(service)が使用するプロセス起動
+// 非同期で起動して、PIDを知らせてすぐ抜ける
 func StartProcess(param ProcessParam) (int, error) {
 	cmd := exec.Command(param.StartCmd, param.StartArgs)
 	cmd.Dir = param.CurrentDir
@@ -186,37 +185,30 @@ func StartProcess(param ProcessParam) (int, error) {
 	}
 }
 
-// StartProcess 付属コマンド(service)で使用するプロセス起動
-// 非同期で起動して、PIDを知らせてすぐ抜ける
-func StartProcess2(param ProcessParam) (int, error) {
+// RunProcess プロセス起動して終了まで待つ
+func RunProcess(param ProcessParam) error {
 	// Ctrl+Cを受け取る
 	quit := make(chan os.Signal)
 	signal.Notify(quit, os.Interrupt)
 
-	proc := make(chan Proc, 1)
-	go newProcess(proc, param)
+	done := make(chan error, 1)
+	go newProcess(done, param)
 
 	select {
 	case <-quit:
 		log.Println("interrup signal accepted.")
-		return -1, errors.New("interrup signal accepted.")
-	case p := <-proc:
-		if p.Err != nil {
-			log.Println("process start error.", p.Err)
-			return -1, p.Err
-		} else if p.Pid > 0 {
-			return p.Pid, nil
+	case err := <-done:
+		if err != nil {
+			log.Println("error exit:", err)
+			return err
 		}
 	}
-	return -1, errors.New("process stop")
+	return nil
 }
 
 // newProcess goroutineでプロセスを起動
-func newProcess(proc chan<- Proc, param ProcessParam) {
-	//defer close(pid)
-	defer close(proc)
-
-	var p Proc
+func newProcess(done chan<- error, param ProcessParam) {
+	defer close(done)
 
 	startArgs := strings.Fields(param.StartArgs)
 	cmd := exec.Command(param.StartCmd, startArgs...)
@@ -225,34 +217,27 @@ func newProcess(proc chan<- Proc, param ProcessParam) {
 		cmd.Env = param.Env
 	}
 
-	/*
-		stdout, _ := cmd.StdoutPipe()
-		stderr, _ := cmd.StderrPipe()
-		stdoutStderr := io.MultiReader(stdout, stderr)
-	*/
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+	stdoutStderr := io.MultiReader(stdout, stderr)
 
 	setService(cmd)
 	err := cmd.Start()
 	if err != nil {
-		p.Err = err
+		done <- err
 	} else {
-		p.Pid = cmd.Process.Pid
-		log.Println("Process.Pid:", cmd.Process.Pid)
-		log.Println("ProcessState.Success():", cmd.ProcessState.Success())
-
-		/*
-			fmt.Println("--- stdout/stderr ---")
-			scanner := bufio.NewScanner(stdoutStderr)
-			for scanner.Scan() {
-				fmt.Println(scanner.Text())
-			}
-		*/
+		//fmt.Println("--- stdout/stderr ---")
+		scanner := bufio.NewScanner(stdoutStderr)
+		for scanner.Scan() {
+			fmt.Println(scanner.Text())
+		}
 	}
 
-	proc <- p
+	done <- nil
 }
 
+// setService Group PidとSession idを親プロセスから分離する
 func setService(cmd *exec.Cmd) {
-	//cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	//cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
