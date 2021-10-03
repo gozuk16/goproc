@@ -2,9 +2,9 @@ package goproc
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -64,6 +64,8 @@ type ProcessParam struct {
 	StopCmd    string   `json:"stopCmd"`
 	StopArgs   string   `json:"stopArgs"`
 }
+
+var ErrInterrupt = errors.New("interrupt signal accepted.")
 
 // GetProcesses 指定されたPIDのプロセス情報をまとめて返す
 func GetProcesses(pids []int) (Processes, error) {
@@ -196,10 +198,11 @@ func RunProcess(param ProcessParam) error {
 
 	select {
 	case <-quit:
-		log.Println("interrup signal accepted.")
+		//log.Println("interrup signal accepted.")
+		return ErrInterrupt
 	case err := <-done:
 		if err != nil {
-			log.Println("error exit:", err)
+			//log.Println("error exit:", err)
 			return err
 		}
 	}

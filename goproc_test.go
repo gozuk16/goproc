@@ -124,7 +124,10 @@ func TestRunProcess(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.msg, func(t *testing.T) {
 			err := goproc.RunProcess(c.param)
-			if c.except && err != nil {
+			if err != nil && err.Error() == "interrupt signal accepted." {
+				// TODO: errors.IS()で書き直すには元でError() stringを実装した型を書く
+				fmt.Println("interrup is normal.")
+			} else if c.except && err != nil {
 				t.Errorf("StartProcess = %s, Failed", err)
 			} else if !c.except && err == nil {
 				t.Errorf("StartProcess nothing err, Failed")
