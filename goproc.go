@@ -198,11 +198,9 @@ func RunProcess(param ProcessParam) error {
 
 	select {
 	case <-quit:
-		//log.Println("interrup signal accepted.")
 		return ErrInterrupt
 	case err := <-done:
 		if err != nil {
-			//log.Println("error exit:", err)
 			return err
 		}
 	}
@@ -243,4 +241,9 @@ func newProcess(done chan<- error, param ProcessParam) {
 func setService(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+}
+
+// StopService サービス停止コマンドを起動し、サービスが終了するまで待つ
+// timeoutあり
+func StopService(param ProcessParam) (int, error) {
 }
