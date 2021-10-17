@@ -20,6 +20,9 @@ import (
 
 const timeformat = "2006/01/02 15:04:05"
 
+// overwritten with os.Interrupt on windows environment (see main_windows.go)
+var stopSignal = syscall.SIGTERM
+
 // 子プロセス情報
 type ChildrenProcess struct {
 	Name    string `json:"name"`
@@ -245,5 +248,27 @@ func setService(cmd *exec.Cmd) {
 
 // StopService サービス停止コマンドを起動し、サービスが終了するまで待つ
 // timeoutあり
-func StopService(param ProcessParam) (int, error) {
+func StopService(param ProcessParam) error {
+	if err := RunProcess(param); err != nil {
+		return err
+	}
+
+}
+
+// StopServiceByPid PIDでプロセスを識別してシグナルを送信して終了する
+func StopServiceByPid(param ProcessParam) error {
+}
+
+func stopProcessByPid(pid int) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	//stopSignal := syscall.SIGTERM
+	err = p.Signal(stopSignal)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
