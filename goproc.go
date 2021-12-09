@@ -253,10 +253,17 @@ func StopService(param ProcessParam) error {
 		return err
 	}
 
+	return nil
+
 }
 
 // StopServiceByPid PIDでプロセスを識別してシグナルを送信して終了する
-func StopServiceByPid(param ProcessParam) error {
+func StopServiceByPid(pid int) error {
+	if err := stopProcessByPid(pid); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func stopProcessByPid(pid int) error {
