@@ -102,7 +102,7 @@ func GetProcess(pid int) (*Process, error) {
 	ret.Name, _ = p.Name()
 
 	cpupercent, _ := p.CPUPercent()
-	ret.CpuPercent = math.Round(cpupercent*1000) / 10
+	ret.CpuPercent = math.Round(cpupercent*10) / 10
 
 	cputime, _ := p.Times()
 	ret.CpuTotal = math.Round(cputime.Total()*100) / 100
