@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -62,10 +63,8 @@ type Processes []Process
 type ProcessParam struct {
 	Env        []string `json:"env"`
 	CurrentDir string   `json:"currentDir"`
-	StartCmd   string   `json:"startCmd"`
-	StartArgs  string   `json:"startArgs"`
-	StopCmd    string   `json:"stopCmd"`
-	StopArgs   string   `json:"stopArgs"`
+	Command    string   `json:"command"`
+	Args       string   `json:"args"`
 }
 
 var ErrInterrupt = errors.New("interrupt signal accepted.")
@@ -149,38 +148,19 @@ func GetProcess(pid int) (*Process, error) {
 	return ret, nil
 }
 
-// StartService 付属コマンド(service)を使ってバックグラウンドでサービスを起動
-// 付属コマンドは起動したらPIDを知らせてすぐ抜けるため、非同期にする必要なし
+// StartService 非同期サービスを起動し、PIDを知らせる
 func StartService(param ProcessParam) (int, error) {
-	// 付属コマンド(service)は1つ目の引数に起動コマンドを受けとる
-	startArgs := []string{param.StartCmd}
-	startArgs = append(startArgs, strings.Fields(param.StartArgs)...)
+	startArgs := []string{}
+	startArgs = append(startArgs, strings.Fields(param.Args)...)
 
-	// TODO: パスや名称に考慮して定数化する(変数かも)
-	cmd := exec.Command("service", startArgs...)
+	log.Println("exec:", param.Command, " ", startArgs)
+	cmd := exec.Command(param.Command, startArgs...)
 	cmd.Dir = param.CurrentDir
 	if len(param.Env) > 0 {
 		cmd.Env = param.Env
 	}
 
-	err := cmd.Start()
-	if err != nil {
-		return -1, err
-	} else {
-		pid := cmd.Process.Pid
-		return pid, nil
-	}
-}
-
-// StartProcess 付属コマンド(service)が使用するプロセス起動
-// 非同期で起動して、PIDを知らせてすぐ抜ける
-func StartProcess(param ProcessParam) (int, error) {
-	cmd := exec.Command(param.StartCmd, param.StartArgs)
-	cmd.Dir = param.CurrentDir
-	if len(param.Env) > 0 {
-		cmd.Env = param.Env
-	}
-
+	setService(cmd)
 	err := cmd.Start()
 	if err != nil {
 		return -1, err
@@ -214,8 +194,8 @@ func RunProcess(param ProcessParam) error {
 func newProcess(done chan<- error, param ProcessParam) {
 	defer close(done)
 
-	startArgs := strings.Fields(param.StartArgs)
-	cmd := exec.Command(param.StartCmd, startArgs...)
+	startArgs := strings.Fields(param.Args)
+	cmd := exec.Command(param.Command, startArgs...)
 	cmd.Dir = param.CurrentDir
 	if len(param.Env) > 0 {
 		cmd.Env = param.Env

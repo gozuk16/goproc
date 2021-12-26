@@ -73,9 +73,9 @@ func TestGetProcesses(t *testing.T) {
 func TestStartProcess(t *testing.T) {
 	usr, _ := user.Current()
 	p := []goproc.ProcessParam{
-		{CurrentDir: usr.HomeDir, StartCmd: "ls", StartArgs: "-l .."},
-		{CurrentDir: "/Users/xxx", StartCmd: "ls"},
-		{StartCmd: "top"},
+		{CurrentDir: usr.HomeDir, Command: "ls", Args: "-l .."},
+		{CurrentDir: "/Users/xxx", Command: "ls"},
+		{Command: "top"},
 	}
 
 	cases := []struct {
@@ -96,7 +96,7 @@ func TestStartProcess(t *testing.T) {
 			} else if !c.except && err == nil {
 				t.Errorf("StartProcess nothing err, Failed")
 			} else {
-				fmt.Printf("%s(pid: %d)\n", c.param.StartCmd, pid)
+				fmt.Printf("%s(pid: %d)\n", c.param.Command, pid)
 			}
 		})
 	}
@@ -106,9 +106,9 @@ func TestStartProcess(t *testing.T) {
 func TestRunProcess(t *testing.T) {
 	usr, _ := user.Current()
 	p := []goproc.ProcessParam{
-		{CurrentDir: usr.HomeDir, StartCmd: "ls", StartArgs: "-l .."},
-		{CurrentDir: "/Users/xxx", StartCmd: "ls"},
-		{StartCmd: "top"},
+		{CurrentDir: usr.HomeDir, Command: "ls", Args: "-l .."},
+		{CurrentDir: "/Users/xxx", Command: "ls"},
+		{Command: "top"},
 	}
 
 	cases := []struct {
@@ -132,7 +132,7 @@ func TestRunProcess(t *testing.T) {
 			} else if !c.except && err == nil {
 				t.Errorf("StartProcess nothing err, Failed")
 			} else {
-				fmt.Printf("%s\n", c.param.StartCmd)
+				fmt.Printf("%s\n", c.param.Command)
 			}
 		})
 	}
