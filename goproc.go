@@ -14,15 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shirou/gopsutil/v3/process"
-
 	"github.com/inhies/go-bytesize"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
-const timeformat = "2006/01/02 15:04:05"
-
 // overwritten with os.Interrupt on windows environment (see main_windows.go)
-var stopSignal = syscall.SIGTERM
+const stopSignal = syscall.SIGTERM
+
+const timeformat = "2006/01/02 15:04:05"
 
 // 子プロセス情報
 type ChildrenProcess struct {
@@ -150,14 +149,18 @@ func GetProcess(pid int) (*Process, error) {
 
 // StartService 非同期サービスを起動し、PIDを知らせる
 func StartService(param ProcessParam) (int, error) {
-	startArgs := []string{}
-	startArgs = append(startArgs, strings.Fields(param.Args)...)
+	startArgs := strings.Fields(param.Args)
 
-	log.Println("exec:", param.Command, " ", startArgs)
+	// 先に環境変数を展開して反映しておかないと修正したPATHがexec.Commandに適用されない
+	env := []string{}
+	if len(param.Env) > 0 {
+		env = setExpandEnv(param.Env)
+	}
+
 	cmd := exec.Command(param.Command, startArgs...)
 	cmd.Dir = param.CurrentDir
-	if len(param.Env) > 0 {
-		cmd.Env = param.Env
+	if len(env) > 0 {
+		cmd.Env = env
 	}
 
 	setService(cmd)
@@ -195,10 +198,17 @@ func newProcess(done chan<- error, param ProcessParam) {
 	defer close(done)
 
 	startArgs := strings.Fields(param.Args)
+
+	// 先に環境変数を展開して反映しておかないと修正したPATHがexec.Commandに適用されない
+	env := []string{}
+	if len(param.Env) > 0 {
+		env = setExpandEnv(param.Env)
+	}
+
 	cmd := exec.Command(param.Command, startArgs...)
 	cmd.Dir = param.CurrentDir
 	if len(param.Env) > 0 {
-		cmd.Env = param.Env
+		cmd.Env = env
 	}
 
 	stdout, _ := cmd.StdoutPipe()
@@ -210,7 +220,6 @@ func newProcess(done chan<- error, param ProcessParam) {
 	if err != nil {
 		done <- err
 	} else {
-		//fmt.Println("--- stdout/stderr ---")
 		scanner := bufio.NewScanner(stdoutStderr)
 		for scanner.Scan() {
 			fmt.Println(scanner.Text())
@@ -218,12 +227,6 @@ func newProcess(done chan<- error, param ProcessParam) {
 	}
 
 	done <- nil
-}
-
-// setService Group PidとSession idを親プロセスから分離する
-func setService(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
 
 // StopService サービス停止コマンドを起動し、サービスが終了するまで待つ
@@ -258,4 +261,20 @@ func stopProcessByPid(pid int) error {
 	}
 
 	return nil
+}
+
+// setExpandEnv 渡された環境変数に変数があれば固定値に展開して返す
+func setExpandEnv(orgEnv []string) []string {
+	var env []string
+
+	for _, e := range orgEnv {
+		expandEnv := os.ExpandEnv(e)
+		env := strings.Split(expandEnv, "=")
+		if err := os.Setenv(env[0], env[1]); err != nil {
+			log.Println(err)
+		}
+		log.Printf("env: %v to expandEnv: %v\n", e, expandEnv)
+		env = append(env, expandEnv)
+	}
+	return env
 }
