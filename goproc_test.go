@@ -76,6 +76,8 @@ func TestRunProcess(t *testing.T) {
 		{CurrentDir: usr.HomeDir, Command: "ls", Args: "-l .."},
 		{CurrentDir: "/Users/xxx", Command: "ls"},
 		{Command: "top"},
+		{Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=$JAVA_HOME/bin:$PATH"}, Command: "java", Args: "-version"},
+		{CurrentDir: "/Users/gozu/INFOCOM/ism/service/jetty/demo-base", Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=${JAVA_HOME}/bin:$PATH"}, Command: "java", Args: "-jar ../start.jar STOP.PORT=28282 STOP.KEY=secret jetty.http.port=8081 jetty.ssl.port=8444"},
 	}
 
 	cases := []struct {
@@ -85,7 +87,9 @@ func TestRunProcess(t *testing.T) {
 	}{
 		{p[0], true, "ls起動出来る(エラーがなければ内容は目視で確認)"},
 		{p[1], false, "存在しないディレクトリをセットしたらエラー"},
-		{p[2], true, "常駐プロセス(top)"},
+		//{p[2], true, "常駐プロセス(top)"},
+		{p[3], true, "環境変数の展開"},
+		{p[4], true, "環境変数でJavaを切り替える"},
 	}
 
 	for _, c := range cases {

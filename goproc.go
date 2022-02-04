@@ -97,49 +97,117 @@ func GetProcess(pid int) (*Process, error) {
 		return nil, err
 	}
 
-	ret.Name, _ = p.Name()
+	ret.Name, err = p.Name()
+	if err != nil {
+		log.Printf("error: get process.Name: %v", err)
+	}
 
-	cpupercent, _ := p.CPUPercent()
-	ret.CpuPercent = math.Round(cpupercent*10) / 10
+	cpupercent, err := p.CPUPercent()
+	if err != nil {
+		log.Printf("error: get process.CPUPercent: %v", err)
+		ret.CpuPercent = 0
+	} else {
+		ret.CpuPercent = math.Round(cpupercent*10) / 10
+	}
 
-	cputime, _ := p.Times()
-	ret.CpuTotal = math.Round(cputime.Total()*100) / 100
-	ret.CpuUser = cputime.User
-	ret.CpuSystem = cputime.System
-	ret.CpuIdle = cputime.Idle
-	ret.CpuIowait = cputime.Iowait
+	cputime, err := p.Times()
+	if err != nil {
+		log.Printf("error: get process.Time: %v", err)
+		ret.CpuTotal = 0
+		ret.CpuUser = 0
+		ret.CpuSystem = 0
+		ret.CpuIdle = 0
+		ret.CpuIowait = 0
+	} else {
+		ret.CpuTotal = math.Round(cputime.Total()*100) / 100
+		ret.CpuUser = cputime.User
+		ret.CpuSystem = cputime.System
+		ret.CpuIdle = cputime.Idle
+		ret.CpuIowait = cputime.Iowait
+	}
 
-	memory, _ := p.MemoryInfo()
-	ret.Vms = bytesize.New(float64(memory.VMS)).String()
-	ret.Rss = bytesize.New(float64(memory.RSS)).String()
-	ret.Swap = bytesize.New(float64(memory.Swap)).String()
+	memory, err := p.MemoryInfo()
+	if err != nil {
+		log.Printf("error: get process.MemoryInfo: %v", err)
+		ret.Vms = err.Error()
+		ret.Rss = err.Error()
+		ret.Swap = err.Error()
+	} else {
+		ret.Vms = bytesize.New(float64(memory.VMS)).String()
+		ret.Rss = bytesize.New(float64(memory.RSS)).String()
+		ret.Swap = bytesize.New(float64(memory.Swap)).String()
+	}
 
-	ret.Cmdline, _ = p.Cmdline()
-	ret.Exe, _ = p.Exe()
-	ret.Cwd, _ = p.Cwd()
+	ret.Cmdline, err = p.Cmdline()
+	if err != nil {
+		log.Printf("error: get process.Cmdline: %v", err)
+	}
+	ret.Exe, err = p.Exe()
+	if err != nil {
+		//log.Printf("error: get process.Exe: %v", err)
+		ret.Exe = err.Error()
+	}
+	ret.Cwd, err = p.Cwd()
+	if err != nil {
+		//log.Printf("error: get process.Cwd: %v", err)
+		// TODO:Macだとnot implemented yetとなる。Winの挙動を調べて分岐するかエラー処理ではじくか？
+		ret.Cwd = err.Error()
+	}
 
-	createtime, _ := p.CreateTime()
+	createtime, err := p.CreateTime()
+	if err != nil {
+		log.Printf("error: get process.CreateTime: %v", err)
+	}
 	ret.CreateTime = time.Unix(createtime/1000, 0).Format(timeformat)
 
-	ret.Exist, _ = process.PidExists(int32(pid))
+	// TODO:これで死活をチェックして以後の処理をスキップした方がいい？
+	ret.Exist, err = process.PidExists(int32(pid))
+	if err != nil {
+		log.Printf("error: get process.PidExists: %v", err)
+	}
 
-	statuses, _ := p.Status()
+	statuses, err := p.Status()
+	if err != nil {
+		log.Printf("error: get process.Status: %v", err)
+	}
 	ret.Status = strings.Join(statuses, ", ")
 
 	ret.Pid = int(p.Pid)
 
-	ppid, _ := p.Ppid()
+	ppid, err := p.Ppid()
+	if err != nil {
+		log.Printf("error: get process.Ppid: %v", err)
+	}
 	ret.Ppid = int(ppid)
 
 	cp := []ChildrenProcess{}
-	children, _ := p.Children()
+	children, err := p.Children()
+	if err != nil {
+		return ret, nil
+	}
 	for _, c := range children {
-		cname, _ := c.Name()
-		ccmd, _ := c.Cmdline()
-		cmemory, _ := c.MemoryInfo()
-		cvms := bytesize.New(float64(cmemory.VMS)).String()
-		crss := bytesize.New(float64(cmemory.RSS)).String()
-		cswap := bytesize.New(float64(cmemory.Swap)).String()
+		cname, err := c.Name()
+		if err != nil {
+			log.Printf("error: get process.Children.Name: %v", err)
+			cname = err.Error()
+		}
+		ccmd, err := c.Cmdline()
+		if err != nil {
+			log.Printf("error: get process.Children.Cmdline: %v", err)
+			ccmd = err.Error()
+		}
+		cmemory, err := c.MemoryInfo()
+		var cvms, crss, cswap string
+		if err != nil {
+			log.Printf("error: get process.Children.MemoryInfo: %v", err)
+			cvms = err.Error()
+			crss = err.Error()
+			cswap = err.Error()
+		} else {
+			cvms = bytesize.New(float64(cmemory.VMS)).String()
+			crss = bytesize.New(float64(cmemory.RSS)).String()
+			cswap = bytesize.New(float64(cmemory.Swap)).String()
+		}
 		cp = append(cp, ChildrenProcess{cname, ccmd, int(c.Pid), cvms, crss, cswap})
 	}
 	ret.Children = cp
@@ -241,6 +309,7 @@ func StopService(param ProcessParam) error {
 }
 
 // StopServiceByPid PIDでプロセスを識別してシグナルを送信して終了する
+/*
 func StopServiceByPid(pid int) error {
 	if err := stopProcessByPid(pid); err != nil {
 		return err
@@ -248,8 +317,11 @@ func StopServiceByPid(pid int) error {
 
 	return nil
 }
+*/
 
-func stopProcessByPid(pid int) error {
+// StopServiceByPid PIDでプロセスを識別してシグナルを送信して終了する
+//func stopProcessByPid(pid int) error {
+func StopServiceByPid(pid int) error {
 	p, err := os.FindProcess(pid)
 	if err != nil {
 		return err
