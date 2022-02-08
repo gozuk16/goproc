@@ -2,12 +2,31 @@ package goproc_test
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/user"
 	"testing"
 
 	"github.com/gozuk16/goproc"
 )
+
+// setLogger ログ出力の調整
+func setLogger() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+}
+
+func TestMain(m *testing.M) {
+	setLogger()
+
+	/*
+		currentdir, _ = os.Getwd()
+		IsmHome = filepath.Clean(filepath.Join(currentdir, testIsmHome))
+		IsmLog = filepath.Clean(filepath.Join(IsmHome, testIsmLog))
+		fmt.Println(IsmHome)
+	*/
+
+	m.Run()
+}
 
 func TestGetProcessError(t *testing.T) {
 	// マイナス 0 1 がエラーで返らない場合はFail
@@ -70,7 +89,7 @@ func TestGetProcesses(t *testing.T) {
 	}
 }
 
-func TestRunProcess(t *testing.T) {
+func TestStopService(t *testing.T) {
 	usr, _ := user.Current()
 	p := []goproc.ProcessParam{
 		{CurrentDir: usr.HomeDir, Command: "ls", Args: "-l .."},
@@ -94,7 +113,7 @@ func TestRunProcess(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.msg, func(t *testing.T) {
-			err := goproc.RunProcess(c.param)
+			err := goproc.StopService(c.param)
 			if err != nil && err.Error() == "interrupt signal accepted." {
 				// TODO: errors.IS()で書き直すには元でError() stringを実装した型を書く
 				fmt.Println("interrup is normal.")
@@ -104,6 +123,46 @@ func TestRunProcess(t *testing.T) {
 				t.Errorf("StartProcess nothing err, Failed")
 			} else {
 				fmt.Printf("%s\n", c.param.Command)
+			}
+		})
+	}
+
+}
+
+func TestRunProcess(t *testing.T) {
+	usr, _ := user.Current()
+	p := []goproc.ProcessParam{
+		{CurrentDir: usr.HomeDir, Command: "ls", Args: "-l .."},
+		{CurrentDir: "/Users/xxx", Command: "ls"},
+		{Command: "top"},
+		{Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=$JAVA_HOME/bin:$PATH"}, Command: "java", Args: "-version"},
+		{CurrentDir: "/Users/gozu/INFOCOM/ism/service/jetty/demo-base", Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=${JAVA_HOME}/bin:$PATH"}, Command: "java", Args: "-jar ../start.jar STOP.PORT=28282 STOP.KEY=secret jetty.http.port=8081 jetty.ssl.port=8444"},
+	}
+
+	cases := []struct {
+		param  goproc.ProcessParam
+		except bool
+		msg    string
+	}{
+		{p[0], true, "ls起動出来る(エラーがなければ内容は目視で確認)"},
+		{p[1], false, "存在しないディレクトリをセットしたらエラー"},
+		{p[2], true, "常駐プロセス(top)"},
+		{p[3], true, "環境変数の展開"},
+		//{p[4], true, "環境変数でJavaを切り替える"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.msg, func(t *testing.T) {
+			err := goproc.RunProcess(c.param)
+			if err != nil && err.Error() == "interrupt signal accepted." {
+				// TODO: errors.IS()で書き直すには元でError() stringを実装した型を書く
+				fmt.Println("interrup is normal.")
+			} else if c.except && err != nil {
+				t.Errorf("StartProcess = %s, Failed", err)
+			} else if !c.except && err == nil {
+				t.Errorf("StartProcess nothing err, Failed")
+			} else {
+				fmt.Printf("command: %s\n", c.param.Command)
 			}
 		})
 	}

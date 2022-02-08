@@ -4,56 +4,54 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"path/filepath"
+
 	"io"
 	"log"
 	"math"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/inhies/go-bytesize"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
-// overwritten with os.Interrupt on windows environment (see main_windows.go)
-const stopSignal = syscall.SIGTERM
-
-const timeformat = "2006/01/02 15:04:05"
-
 // 子プロセス情報
 type ChildrenProcess struct {
-	Name    string `json:"name"`
-	Cmdline string `json:"cmdline"`
-	Pid     int    `json:"pid"`
-	Vms     string `json:"vms"`
-	Rss     string `json:"rss"`
-	Swap    string `json:"swap"`
+	Name       string  `json:"name"`
+	Cmdline    string  `json:"cmdline"`
+	Pid        int     `json:"pid"`
+	CpuPercent float64 `json:"cpuPercent"`
+	Vms        string  `json:"vms"`
+	Rss        string  `json:"rss"`
+	Swap       string  `json:"swap"`
 }
 
 // プロセス情報
 type Process struct {
-	Name       string            `json:"name"`
-	CpuPercent float64           `json:"cpuPercent"`
-	CpuTotal   float64           `json:"cpuTotal"`
-	CpuUser    float64           `json:"cpuUser"`
-	CpuSystem  float64           `json:"cpuSystem"`
-	CpuIdle    float64           `json:"cpuIdle"`
-	CpuIowait  float64           `json:"cpuIowait"`
-	Vms        string            `json:"vms"`
-	Rss        string            `json:"rss"`
-	Swap       string            `json:"swap"`
-	Cmdline    string            `json:"cmdline"`
-	Exe        string            `json:"exe"`
-	Cwd        string            `json:"cwd"`
-	CreateTime string            `json:"createTime"`
-	Exist      bool              `json:"exist"`
-	Status     string            `json:"status"`
-	Pid        int               `json:"pid"`
-	Ppid       int               `json:"ppid"`
-	Children   []ChildrenProcess `json:"children"`
+	Name          string            `json:"name"`
+	CpuPercent    float64           `json:"cpuPercent"`
+	CpuTotal      float64           `json:"cpuTotal"`
+	CpuUser       float64           `json:"cpuUser"`
+	CpuSystem     float64           `json:"cpuSystem"`
+	CpuIdle       float64           `json:"cpuIdle"`
+	CpuIowait     float64           `json:"cpuIowait"`
+	Vms           string            `json:"vms"`
+	Rss           string            `json:"rss"`
+	Swap          string            `json:"swap"`
+	Cmdline       string            `json:"cmdline"`
+	Exe           string            `json:"exe"`
+	Cwd           string            `json:"cwd"`
+	CreateTime    string            `json:"createTime"`
+	Exist         bool              `json:"exist"`
+	Status        string            `json:"status"`
+	Pid           int               `json:"pid"`
+	Ppid          int               `json:"ppid"`
+	Children      []ChildrenProcess `json:"children"`
+	SumCpuPercent float64           `json:"sumCpuPercent"`
+	SumRss        string            `json:"sumRss"`
 }
 
 type Processes []Process
@@ -64,7 +62,11 @@ type ProcessParam struct {
 	CurrentDir string   `json:"currentDir"`
 	Command    string   `json:"command"`
 	Args       string   `json:"args"`
+	RecordPid  bool     `json:"recordPid"`
+	PidFile    string   `json:"pidFile"`
 }
+
+const timeformat = "2006/01/02 15:04:05"
 
 var ErrInterrupt = errors.New("interrupt signal accepted.")
 
@@ -100,6 +102,13 @@ func GetProcess(pid int) (*Process, error) {
 	ret.Name, err = p.Name()
 	if err != nil {
 		log.Printf("error: get process.Name: %v", err)
+	}
+
+	// TODO:これで死活をチェックして以後の処理をスキップした方がいい？
+	ret.Exist, err = process.PidExists(int32(pid))
+	if err != nil {
+		log.Printf("error: get process.PidExists: %v", err)
+		return ret, err
 	}
 
 	cpupercent, err := p.CPUPercent()
@@ -160,12 +169,6 @@ func GetProcess(pid int) (*Process, error) {
 	}
 	ret.CreateTime = time.Unix(createtime/1000, 0).Format(timeformat)
 
-	// TODO:これで死活をチェックして以後の処理をスキップした方がいい？
-	ret.Exist, err = process.PidExists(int32(pid))
-	if err != nil {
-		log.Printf("error: get process.PidExists: %v", err)
-	}
-
 	statuses, err := p.Status()
 	if err != nil {
 		log.Printf("error: get process.Status: %v", err)
@@ -185,6 +188,8 @@ func GetProcess(pid int) (*Process, error) {
 	if err != nil {
 		return ret, nil
 	}
+	sumcpu := cpupercent
+	sumrss := memory.RSS
 	for _, c := range children {
 		cname, err := c.Name()
 		if err != nil {
@@ -195,6 +200,15 @@ func GetProcess(pid int) (*Process, error) {
 		if err != nil {
 			log.Printf("error: get process.Children.Cmdline: %v", err)
 			ccmd = err.Error()
+		}
+		var ccpu float64
+		ccpupercent, err := c.CPUPercent()
+		if err != nil {
+			log.Printf("error: get process.Children.CPUPercent: %v", err)
+			ccpu = 0
+		} else {
+			ccpu = math.Round(ccpupercent*10) / 10
+			sumcpu = sumcpu + ccpupercent
 		}
 		cmemory, err := c.MemoryInfo()
 		var cvms, crss, cswap string
@@ -207,16 +221,21 @@ func GetProcess(pid int) (*Process, error) {
 			cvms = bytesize.New(float64(cmemory.VMS)).String()
 			crss = bytesize.New(float64(cmemory.RSS)).String()
 			cswap = bytesize.New(float64(cmemory.Swap)).String()
+			sumrss = sumrss + cmemory.RSS
 		}
-		cp = append(cp, ChildrenProcess{cname, ccmd, int(c.Pid), cvms, crss, cswap})
+
+		cp = append(cp, ChildrenProcess{cname, ccmd, int(c.Pid), ccpu, cvms, crss, cswap})
 	}
 	ret.Children = cp
+	ret.SumCpuPercent = math.Round(sumcpu*10) / 10
+	ret.SumRss = bytesize.New(float64(sumrss)).String()
 
 	return ret, nil
 }
 
 // StartService 非同期サービスを起動し、PIDを知らせる
-func StartService(param ProcessParam) (int, error) {
+func StartService(done chan<- error, param ProcessParam) {
+	defer close(done)
 	startArgs := strings.Fields(param.Args)
 
 	// 先に環境変数を展開して反映しておかないと修正したPATHがexec.Commandに適用されない
@@ -226,44 +245,41 @@ func StartService(param ProcessParam) (int, error) {
 	}
 
 	cmd := exec.Command(param.Command, startArgs...)
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+	stdoutStderr := io.MultiReader(stdout, stderr)
+
 	cmd.Dir = param.CurrentDir
 	if len(env) > 0 {
 		cmd.Env = env
 	}
 
 	setService(cmd)
-	err := cmd.Start()
-	if err != nil {
-		return -1, err
+	if err := cmd.Start(); err != nil {
+		done <- err
 	} else {
-		pid := cmd.Process.Pid
-		return pid, nil
-	}
-}
-
-// RunProcess プロセス起動して終了まで待つ
-func RunProcess(param ProcessParam) error {
-	// Ctrl+Cを受け取る
-	quit := make(chan os.Signal)
-	signal.Notify(quit, os.Interrupt)
-
-	done := make(chan error, 1)
-	go newProcess(done, param)
-
-	select {
-	case <-quit:
-		return ErrInterrupt
-	case err := <-done:
-		if err != nil {
-			return err
+		if param.RecordPid {
+			if err := createPidFile(cmd.Process.Pid, param.PidFile); err != nil {
+				cmd.Wait()
+				done <- err
+			}
 		}
 	}
-	return nil
+
+	scanner := bufio.NewScanner(stdoutStderr)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
+
+	if err := cmd.Wait(); err != nil {
+		done <- err
+	}
+
+	done <- nil
 }
 
-// newProcess goroutineでプロセスを起動
-func newProcess(done chan<- error, param ProcessParam) {
-	defer close(done)
+// StopService サービス停止コマンドを起動し、サービスが終了するまで待つ
+func StopService(param ProcessParam) error {
 
 	startArgs := strings.Fields(param.Args)
 
@@ -283,50 +299,28 @@ func newProcess(done chan<- error, param ProcessParam) {
 	stderr, _ := cmd.StderrPipe()
 	stdoutStderr := io.MultiReader(stdout, stderr)
 
-	setService(cmd)
 	err := cmd.Start()
 	if err != nil {
-		done <- err
-	} else {
-		scanner := bufio.NewScanner(stdoutStderr)
-		for scanner.Scan() {
-			fmt.Println(scanner.Text())
-		}
-	}
-
-	done <- nil
-}
-
-// StopService サービス停止コマンドを起動し、サービスが終了するまで待つ
-// timeoutあり
-func StopService(param ProcessParam) error {
-	if err := RunProcess(param); err != nil {
 		return err
 	}
+	scanner := bufio.NewScanner(stdoutStderr)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
 
-	return nil
-
-}
-
-// StopServiceByPid PIDでプロセスを識別してシグナルを送信して終了する
-/*
-func StopServiceByPid(pid int) error {
-	if err := stopProcessByPid(pid); err != nil {
+	if err := cmd.Wait(); err != nil {
 		return err
 	}
 
 	return nil
 }
-*/
 
 // StopServiceByPid PIDでプロセスを識別してシグナルを送信して終了する
-//func stopProcessByPid(pid int) error {
 func StopServiceByPid(pid int) error {
 	p, err := os.FindProcess(pid)
 	if err != nil {
 		return err
 	}
-	//stopSignal := syscall.SIGTERM
 	err = p.Signal(stopSignal)
 	if err != nil {
 		return err
@@ -343,10 +337,55 @@ func setExpandEnv(orgEnv []string) []string {
 		expandEnv := os.ExpandEnv(e)
 		env := strings.Split(expandEnv, "=")
 		if err := os.Setenv(env[0], env[1]); err != nil {
-			log.Println(err)
+			//log.Println(err)
 		}
-		log.Printf("env: %v to expandEnv: %v\n", e, expandEnv)
+		//log.Printf("env: %v to expandEnv: %v\n", e, expandEnv)
 		env = append(env, expandEnv)
 	}
 	return env
+}
+
+// isExistFile ファイル存在判定
+func isExistFile(file string) bool {
+	if f, err := os.Stat(file); os.IsNotExist(err) || f.IsDir() {
+		return false
+	} else {
+		return true
+	}
+}
+
+// isExistDir ディレクトリ存在判定
+func isExistDir(dir string) bool {
+	if f, err := os.Stat(dir); os.IsNotExist(err) || !f.IsDir() {
+		return false
+	} else {
+		return true
+	}
+}
+
+// createPidFile pidと書き込むファイル名を受け取ってPIDファイルを作成する
+func createPidFile(pid int, pidfile string) error {
+	if isExistFile(pidfile) {
+		return errors.New("is exist pidfile")
+	}
+
+	// dirが無かったら作る
+	dir, _ := filepath.Split(pidfile)
+	dir = filepath.Clean(dir)
+	if !isExistDir(dir) {
+		if err := os.MkdirAll(dir, 0777); err != nil {
+			return err
+		}
+	}
+
+	// PIDファイル作成
+	fp, err := os.Create(pidfile)
+	if err != nil {
+		return err
+	}
+	defer fp.Close()
+
+	fp.WriteString(fmt.Sprint(pid))
+
+	return nil
 }
