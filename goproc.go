@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/inhies/go-bytesize"
+	"github.com/mattn/go-shellwords"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
@@ -191,6 +192,13 @@ func GetProcess(pid int) (*Process, error) {
 	sumcpu := cpupercent
 	sumrss := memory.RSS
 	for _, c := range children {
+		// TODO:cの状態をチェックして動いてなければスキップする
+		status, err := c.Status()
+		if err != nil {
+			log.Printf("error: get process.Children.Status: %v, %v", status, err)
+			continue
+		}
+
 		cname, err := c.Name()
 		if err != nil {
 			log.Printf("error: get process.Children.Name: %v", err)
@@ -236,7 +244,26 @@ func GetProcess(pid int) (*Process, error) {
 // StartService 非同期サービスを起動し、PIDを知らせる
 func StartService(done chan<- error, param ProcessParam) {
 	defer close(done)
-	startArgs := strings.Fields(param.Args)
+	startArgs, err := shellwords.Parse(param.Args)
+	if err != nil {
+		log.Println(err)
+		done <- err
+	}
+	// param.Commandが空ならstartArgsに全部入っていると見なす
+	if param.Command == "" {
+		if len(startArgs) == 1 {
+			// startArgsが1つならparam.Commandに詰めて空にする
+			param.Command = startArgs[0]
+			startArgs = nil
+		} else if len(startArgs) > 1 {
+			// startArgsが2つ以上なら1つ目をparam.Commandに詰めて2つ目以降のパラメーターをstartArgsに詰め直す
+			param.Command = startArgs[0]
+			startArgs = startArgs[1:]
+		} else {
+			done <- err
+		}
+	}
+	//log.Println(param.Command, startArgs)
 
 	// 先に環境変数を展開して反映しておかないと修正したPATHがexec.Commandに適用されない
 	env := []string{}
@@ -244,7 +271,12 @@ func StartService(done chan<- error, param ProcessParam) {
 		env = setExpandEnv(param.Env)
 	}
 
-	cmd := exec.Command(param.Command, startArgs...)
+	var cmd *exec.Cmd
+	if len(startArgs) > 0 {
+		cmd = exec.Command(param.Command, startArgs...)
+	} else {
+		cmd = exec.Command(param.Command)
+	}
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 	stdoutStderr := io.MultiReader(stdout, stderr)
@@ -336,8 +368,15 @@ func setExpandEnv(orgEnv []string) []string {
 	for _, e := range orgEnv {
 		expandEnv := os.ExpandEnv(e)
 		env := strings.Split(expandEnv, "=")
+		//log.Printf("env len: %d, env: %v to expandEnv: %v\n", len(env), e, expandEnv)
+		if len(env) < 2 {
+			// key=value になってない場合はスキップ
+			log.Println("env format error, %v", env)
+			continue
+		}
 		if err := os.Setenv(env[0], env[1]); err != nil {
-			//log.Println(err)
+			log.Println(err)
+			continue
 		}
 		//log.Printf("env: %v to expandEnv: %v\n", e, expandEnv)
 		env = append(env, expandEnv)

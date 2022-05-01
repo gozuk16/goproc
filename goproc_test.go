@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"os/user"
 	"testing"
+	"time"
 
 	"github.com/gozuk16/goproc"
 )
@@ -118,9 +120,9 @@ func TestStopService(t *testing.T) {
 				// TODO: errors.IS()で書き直すには元でError() stringを実装した型を書く
 				fmt.Println("interrup is normal.")
 			} else if c.except && err != nil {
-				t.Errorf("StartProcess = %s, Failed", err)
+				t.Errorf("StopProcess = %s, Failed", err)
 			} else if !c.except && err == nil {
-				t.Errorf("StartProcess nothing err, Failed")
+				t.Errorf("StopProcess nothing err, Failed")
 			} else {
 				fmt.Printf("%s\n", c.param.Command)
 			}
@@ -129,7 +131,7 @@ func TestStopService(t *testing.T) {
 
 }
 
-func TestRunProcess(t *testing.T) {
+func TestStartService(t *testing.T) {
 	usr, _ := user.Current()
 	p := []goproc.ProcessParam{
 		{CurrentDir: usr.HomeDir, Command: "ls", Args: "-l .."},
@@ -137,6 +139,7 @@ func TestRunProcess(t *testing.T) {
 		{Command: "top"},
 		{Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=$JAVA_HOME/bin:$PATH"}, Command: "java", Args: "-version"},
 		{CurrentDir: "/Users/gozu/INFOCOM/ism/service/jetty/demo-base", Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=${JAVA_HOME}/bin:$PATH"}, Command: "java", Args: "-jar ../start.jar STOP.PORT=28282 STOP.KEY=secret jetty.http.port=8081 jetty.ssl.port=8444"},
+		{CurrentDir: usr.HomeDir, Command: "sh", Args: "-c \"sleep 1 && ls -l\""},
 	}
 
 	cases := []struct {
@@ -146,23 +149,36 @@ func TestRunProcess(t *testing.T) {
 	}{
 		{p[0], true, "ls起動出来る(エラーがなければ内容は目視で確認)"},
 		{p[1], false, "存在しないディレクトリをセットしたらエラー"},
-		{p[2], true, "常駐プロセス(top)"},
+		//{p[2], true, "常駐プロセス(top)"},
 		{p[3], true, "環境変数の展開"},
-		//{p[4], true, "環境変数でJavaを切り替える"},
+		{p[4], true, "環境変数でJavaを切り替える"},
+		{p[5], true, "sh経由で起動する"},
 	}
 
 	for _, c := range cases {
 		t.Run(c.msg, func(t *testing.T) {
-			err := goproc.RunProcess(c.param)
-			if err != nil && err.Error() == "interrupt signal accepted." {
-				// TODO: errors.IS()で書き直すには元でError() stringを実装した型を書く
+			// Ctrl+Cを受け取る
+			quit := make(chan os.Signal)
+			signal.Notify(quit, os.Interrupt)
+			done := make(chan error, 1)
+			go goproc.StartService(done, c.param)
+			// ちょっと待ってからエラーチェック
+			time.Sleep(1100 * time.Millisecond)
+			select {
+			case <-quit:
 				fmt.Println("interrup is normal.")
-			} else if c.except && err != nil {
-				t.Errorf("StartProcess = %s, Failed", err)
-			} else if !c.except && err == nil {
-				t.Errorf("StartProcess nothing err, Failed")
-			} else {
-				fmt.Printf("command: %s\n", c.param.Command)
+			case err := <-done:
+				if err != nil {
+					fmt.Println(err)
+					if c.except {
+						t.Errorf("StartProcess = %s, Failed", err)
+					}
+				}
+			default:
+				// 何も無ければ起動したので処理を継続
+				if !c.except {
+					t.Errorf("StartProcess nothing err, Failed")
+				}
 			}
 		})
 	}
