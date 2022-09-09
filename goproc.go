@@ -172,7 +172,8 @@ func GetProcess(pid int) (*Process, error) {
 
 	statuses, err := p.Status()
 	if err != nil {
-		log.Printf("error: get process.Status: %v", err)
+		// TODO:Winだとnot implemented yetとなる。MacはOK
+		//log.Printf("error: get process.Status: %v", err)
 	}
 	ret.Status = strings.Join(statuses, ", ")
 
@@ -192,12 +193,15 @@ func GetProcess(pid int) (*Process, error) {
 	sumcpu := cpupercent
 	sumrss := memory.RSS
 	for _, c := range children {
-		// TODO:cの状態をチェックして動いてなければスキップする
+		/*
+		// TODO:cの状態をチェックして動いてなければスキップする→Winではチェックできない
 		status, err := c.Status()
 		if err != nil {
+			// TODO:Winだとnot implemented yetとなる。MacはOK
 			log.Printf("error: get process.Children.Status: %v, %v", status, err)
 			continue
 		}
+		*/
 
 		cname, err := c.Name()
 		if err != nil {
