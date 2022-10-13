@@ -100,21 +100,23 @@ func GetProcess(pid int) (*Process, error) {
 		return nil, err
 	}
 
+	// 名前も取れないようなら以後の処理をスキップ(そうじゃないとPanicになる)
 	ret.Name, err = p.Name()
 	if err != nil {
 		log.Printf("error: get process.Name: %v", err)
+		return ret, err
 	}
 
-	// TODO:これで死活をチェックして以後の処理をスキップした方がいい？
+	// 死活をチェックして以後の処理をスキップ
 	ret.Exist, err = process.PidExists(int32(pid))
 	if err != nil {
-		log.Printf("error: get process.PidExists: %v", err)
+		log.Printf("error: %v, get process.PidExists: %v", ret.Name, err)
 		return ret, err
 	}
 
 	cpupercent, err := p.CPUPercent()
 	if err != nil {
-		log.Printf("error: get process.CPUPercent: %v", err)
+		log.Printf("error: %v, get process.CPUPercent: %v", ret.Name, err)
 		ret.CpuPercent = 0
 	} else {
 		ret.CpuPercent = math.Round(cpupercent*10) / 10
@@ -122,7 +124,7 @@ func GetProcess(pid int) (*Process, error) {
 
 	cputime, err := p.Times()
 	if err != nil {
-		log.Printf("error: get process.Time: %v", err)
+		log.Printf("error: %v, get process.Time: %v", ret.Name, err)
 		ret.CpuTotal = 0
 		ret.CpuUser = 0
 		ret.CpuSystem = 0
@@ -138,7 +140,7 @@ func GetProcess(pid int) (*Process, error) {
 
 	memory, err := p.MemoryInfo()
 	if err != nil {
-		log.Printf("error: get process.MemoryInfo: %v", err)
+		log.Printf("error: %v, get process.MemoryInfo: %v", ret.Name, err)
 		ret.Vms = err.Error()
 		ret.Rss = err.Error()
 		ret.Swap = err.Error()
@@ -150,38 +152,40 @@ func GetProcess(pid int) (*Process, error) {
 
 	ret.Cmdline, err = p.Cmdline()
 	if err != nil {
-		log.Printf("error: get process.Cmdline: %v", err)
+		log.Printf("error: %v, get process.Cmdline: %v", ret.Name, err)
 	}
 	ret.Exe, err = p.Exe()
 	if err != nil {
-		//log.Printf("error: get process.Exe: %v", err)
+		log.Printf("error: %v, get process.Exe: %v", ret.Name, err)
 		ret.Exe = err.Error()
 	}
 	ret.Cwd, err = p.Cwd()
 	if err != nil {
-		//log.Printf("error: get process.Cwd: %v", err)
-		// TODO:Macだとnot implemented yetとなる。Winの挙動を調べて分岐するかエラー処理ではじくか？
+		// Winだとcannot read current working directoryになるプロセスがいる（規則性は不明）。MacはOK
+		//log.Printf("error: %v, get process.Cwd: %v", ret.Name, err)
 		ret.Cwd = err.Error()
 	}
 
 	createtime, err := p.CreateTime()
 	if err != nil {
-		log.Printf("error: get process.CreateTime: %v", err)
+		log.Printf("error: %v, get process.CreateTime: %v", ret.Name, err)
 	}
 	ret.CreateTime = time.Unix(createtime/1000, 0).Format(timeformat)
 
-	statuses, err := p.Status()
-	if err != nil {
-		// TODO:Winだとnot implemented yetとなる。MacはOK
-		//log.Printf("error: get process.Status: %v", err)
-	}
-	ret.Status = strings.Join(statuses, ", ")
+	// Winだとnot implemented yetとなるプロセスがいる（規則性が不明）。MacはOKなのでこの値は取らない
+	/*
+		statuses, err := p.Status()
+		if err != nil {
+			log.Printf("error: %v, get process.Status: %v", ret.Name, err)
+		}
+		ret.Status = strings.Join(statuses, ", ")
+	*/
 
 	ret.Pid = int(p.Pid)
 
 	ppid, err := p.Ppid()
 	if err != nil {
-		log.Printf("error: get process.Ppid: %v", err)
+		log.Printf("error: %v, get process.Ppid: %v", ret.Name, err)
 	}
 	ret.Ppid = int(ppid)
 
@@ -193,30 +197,29 @@ func GetProcess(pid int) (*Process, error) {
 	sumcpu := cpupercent
 	sumrss := memory.RSS
 	for _, c := range children {
-		/*
-		// TODO:cの状態をチェックして動いてなければスキップする→Winではチェックできない
-		status, err := c.Status()
-		if err != nil {
-			// TODO:Winだとnot implemented yetとなる。MacはOK
-			log.Printf("error: get process.Children.Status: %v, %v", status, err)
-			continue
-		}
-		*/
-
 		cname, err := c.Name()
 		if err != nil {
 			log.Printf("error: get process.Children.Name: %v", err)
 			cname = err.Error()
 		}
+
+		// Winだとnot implemented yetとなるプロセスがいる（規則性が不明）。MacはOKなのでこの値は取らない
+		/*
+			_, err = c.Status()
+			if err != nil {
+				log.Printf("error: %v, get process.Children.Status: %v", cname, err)
+			}
+		*/
+
 		ccmd, err := c.Cmdline()
 		if err != nil {
-			log.Printf("error: get process.Children.Cmdline: %v", err)
+			log.Printf("error: %v, get process.Children.Cmdline: %v", cname, err)
 			ccmd = err.Error()
 		}
 		var ccpu float64
 		ccpupercent, err := c.CPUPercent()
 		if err != nil {
-			log.Printf("error: get process.Children.CPUPercent: %v", err)
+			log.Printf("error: %v, get process.Children.CPUPercent: %v", cname, err)
 			ccpu = 0
 		} else {
 			ccpu = math.Round(ccpupercent*10) / 10
@@ -225,7 +228,7 @@ func GetProcess(pid int) (*Process, error) {
 		cmemory, err := c.MemoryInfo()
 		var cvms, crss, cswap string
 		if err != nil {
-			log.Printf("error: get process.Children.MemoryInfo: %v", err)
+			log.Printf("error: %v, get process.Children.MemoryInfo: %v", cname, err)
 			cvms = err.Error()
 			crss = err.Error()
 			cswap = err.Error()
@@ -267,7 +270,6 @@ func StartService(done chan<- error, param ProcessParam) {
 			done <- err
 		}
 	}
-	//log.Println(param.Command, startArgs)
 
 	// 先に環境変数を展開して反映しておかないと修正したPATHがexec.Commandに適用されない
 	env := []string{}
