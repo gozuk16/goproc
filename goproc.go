@@ -45,6 +45,7 @@ type Process struct {
 	Cmdline       string            `json:"cmdline"`
 	Exe           string            `json:"exe"`
 	Cwd           string            `json:"cwd"`
+	Env           []string          `json:"env"`
 	CreateTime    string            `json:"createTime"`
 	Exist         bool              `json:"exist"`
 	Status        string            `json:"status"`
@@ -59,8 +60,8 @@ type Processes []Process
 
 // プロセス起動・停止に必要な情報
 type ProcessParam struct {
-	Env        []string `json:"env"`
-	CurrentDir string   `json:"currentDir"`
+	SetEnv     []string `json:"setEnv"`
+	WorkingDir string   `json:"workingDir"`
 	Command    string   `json:"command"`
 	Args       string   `json:"args"`
 	RecordPid  bool     `json:"recordPid"`
@@ -166,6 +167,16 @@ func GetProcess(pid int) (*Process, error) {
 		ret.Cwd = err.Error()
 	}
 
+	// MacだとEnviron()でnot implemented yetになるので自前で実装する
+	envs, err := GetEnviron(p)
+	if err != nil {
+		ret.Env = append(ret.Env, err.Error())
+	} else if len(envs) > 0 {
+		for _, v := range envs {
+			ret.Env = append(ret.Env, v)
+		}
+	}
+
 	createtime, err := p.CreateTime()
 	if err != nil {
 		log.Printf("error: %v, get process.CreateTime: %v", ret.Name, err)
@@ -189,13 +200,38 @@ func GetProcess(pid int) (*Process, error) {
 	}
 	ret.Ppid = int(ppid)
 
-	cp := []ChildrenProcess{}
-	children, err := p.Children()
+	// 子プロセス情報取得
+	cp, sumcpu, sumrss, err := GetChildProcess(pid)
 	if err != nil {
+		log.Printf("error: %v(%d), get child processes: %v", ret.Name, pid, err)
 		return ret, nil
+	} else {
+		sumcpu = cpupercent + sumcpu
+		sumrss = memory.RSS + sumrss
 	}
-	sumcpu := cpupercent
-	sumrss := memory.RSS
+
+	ret.Children = cp
+	ret.SumCpuPercent = math.Round(sumcpu*10) / 10
+	ret.SumRss = bytesize.New(float64(sumrss)).String()
+
+	return ret, nil
+}
+
+// GetChildProcess 指定されたPIDの子プロセス情報を返す
+func GetChildProcess(pid int) ([]ChildrenProcess, float64, uint64, error) {
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	children, err := p.Children()
+	if err != nil || len(children) < 1 {
+		// 子プロセスがいないか取得エラーの場合は0件とみなす
+		return nil, 0, 0, nil
+	}
+
+	var sumcpu float64
+	var sumrss uint64
+	cp := []ChildrenProcess{}
 	for _, c := range children {
 		cname, err := c.Name()
 		if err != nil {
@@ -241,11 +277,29 @@ func GetProcess(pid int) (*Process, error) {
 
 		cp = append(cp, ChildrenProcess{cname, ccmd, int(c.Pid), ccpu, cvms, crss, cswap})
 	}
-	ret.Children = cp
-	ret.SumCpuPercent = math.Round(sumcpu*10) / 10
-	ret.SumRss = bytesize.New(float64(sumrss)).String()
 
-	return ret, nil
+	return cp, sumcpu, sumrss, nil
+}
+
+// GetProcessName 指定されたPIDのプロセス名を返す
+func GetProcessName(pid int) (string, error) {
+	// 渡されたpidがマイナス、0、1の時はエラーで返す(そうじゃないとPanicになる)
+	if pid <= 1 {
+		return "", fmt.Errorf("Don't get process, when pid is %d", pid)
+	}
+
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return "", err
+	}
+
+	name, err := p.Name()
+	if err != nil {
+		log.Printf("error: get process.Name: %v", err)
+		return "", err
+	}
+
+	return name, nil
 }
 
 // StartService 非同期サービスを起動し、PIDを知らせる
@@ -273,8 +327,8 @@ func StartService(done chan<- error, param ProcessParam) {
 
 	// 先に環境変数を展開して反映しておかないと修正したPATHがexec.Commandに適用されない
 	env := []string{}
-	if len(param.Env) > 0 {
-		env = setExpandEnv(param.Env)
+	if len(param.SetEnv) > 0 {
+		env = setExpandEnv(param.SetEnv)
 	}
 
 	var cmd *exec.Cmd
@@ -287,7 +341,7 @@ func StartService(done chan<- error, param ProcessParam) {
 	stderr, _ := cmd.StderrPipe()
 	stdoutStderr := io.MultiReader(stdout, stderr)
 
-	cmd.Dir = param.CurrentDir
+	cmd.Dir = param.WorkingDir
 	if len(env) > 0 {
 		cmd.Env = env
 	}
@@ -297,7 +351,7 @@ func StartService(done chan<- error, param ProcessParam) {
 		done <- err
 	} else {
 		if param.RecordPid {
-			if err := createPidFile(cmd.Process.Pid, param.PidFile); err != nil {
+			if err := CreatePidFile(cmd.Process.Pid, param.PidFile); err != nil {
 				cmd.Wait()
 				done <- err
 			}
@@ -323,13 +377,13 @@ func StopService(param ProcessParam) error {
 
 	// 先に環境変数を展開して反映しておかないと修正したPATHがexec.Commandに適用されない
 	env := []string{}
-	if len(param.Env) > 0 {
-		env = setExpandEnv(param.Env)
+	if len(param.SetEnv) > 0 {
+		env = setExpandEnv(param.SetEnv)
 	}
 
 	cmd := exec.Command(param.Command, startArgs...)
-	cmd.Dir = param.CurrentDir
-	if len(param.Env) > 0 {
+	cmd.Dir = param.WorkingDir
+	if len(param.SetEnv) > 0 {
 		cmd.Env = env
 	}
 
@@ -377,7 +431,7 @@ func setExpandEnv(orgEnv []string) []string {
 		//log.Printf("env len: %d, env: %v to expandEnv: %v\n", len(env), e, expandEnv)
 		if len(env) < 2 {
 			// key=value になってない場合はスキップ
-			log.Println("env format error, %v", env)
+			//log.Println("env format error, %v", env)
 			continue
 		}
 		if err := os.Setenv(env[0], env[1]); err != nil {
@@ -408,8 +462,8 @@ func isExistDir(dir string) bool {
 	}
 }
 
-// createPidFile pidと書き込むファイル名を受け取ってPIDファイルを作成する
-func createPidFile(pid int, pidfile string) error {
+// CreatePidFile pidと書き込むファイル名を受け取ってPIDファイルを作成する
+func CreatePidFile(pid int, pidfile string) error {
 	if isExistFile(pidfile) {
 		return errors.New("is exist pidfile")
 	}

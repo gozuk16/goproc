@@ -94,11 +94,11 @@ func TestGetProcesses(t *testing.T) {
 func TestStopService(t *testing.T) {
 	usr, _ := user.Current()
 	p := []goproc.ProcessParam{
-		{CurrentDir: usr.HomeDir, Command: "ls", Args: "-l .."},
-		{CurrentDir: "/Users/xxx", Command: "ls"},
+		{WorkingDir: usr.HomeDir, Command: "ls", Args: "-l .."},
+		{WorkingDir: "/Users/xxx", Command: "ls"},
 		{Command: "top"},
-		{Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=$JAVA_HOME/bin:$PATH"}, Command: "java", Args: "-version"},
-		{CurrentDir: "/Users/gozu/INFOCOM/ism/service/jetty/demo-base", Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=${JAVA_HOME}/bin:$PATH"}, Command: "java", Args: "-jar ../start.jar STOP.PORT=28282 STOP.KEY=secret jetty.http.port=8081 jetty.ssl.port=8444"},
+		{SetEnv: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=$JAVA_HOME/bin:$PATH"}, Command: "java", Args: "-version"},
+		{WorkingDir: "/Users/gozu/INFOCOM/ism/service/jetty/demo-base", SetEnv: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=${JAVA_HOME}/bin:$PATH"}, Command: "java", Args: "-jar ../start.jar STOP.PORT=28282 STOP.KEY=secret jetty.http.port=8081 jetty.ssl.port=8444"},
 	}
 
 	cases := []struct {
@@ -134,12 +134,12 @@ func TestStopService(t *testing.T) {
 func TestStartService(t *testing.T) {
 	usr, _ := user.Current()
 	p := []goproc.ProcessParam{
-		{CurrentDir: usr.HomeDir, Command: "ls", Args: "-l .."},
-		{CurrentDir: "/Users/xxx", Command: "ls"},
+		{WorkingDir: usr.HomeDir, Command: "ls", Args: "-l .."},
+		{WorkingDir: "/Users/xxx", Command: "ls"},
 		{Command: "top"},
-		{Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=$JAVA_HOME/bin:$PATH"}, Command: "java", Args: "-version"},
-		{CurrentDir: "/Users/gozu/INFOCOM/ism/service/jetty/demo-base", Env: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=${JAVA_HOME}/bin:$PATH"}, Command: "java", Args: "-jar ../start.jar STOP.PORT=28282 STOP.KEY=secret jetty.http.port=8081 jetty.ssl.port=8444"},
-		{CurrentDir: usr.HomeDir, Command: "sh", Args: "-c \"sleep 1 && ls -l\""},
+		{SetEnv: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=$JAVA_HOME/bin:$PATH"}, Command: "java", Args: "-version"},
+		{WorkingDir: "/Users/gozu/INFOCOM/ism/service/jetty/demo-base", SetEnv: []string{"JAVA_HOME=/Users/gozu/.jenv/versions/1.8.0.212", "PATH=${JAVA_HOME}/bin:$PATH"}, Command: "java", Args: "-jar ../start.jar STOP.PORT=28282 STOP.KEY=secret jetty.http.port=8081 jetty.ssl.port=8444"},
+		{WorkingDir: usr.HomeDir, Command: "sh", Args: "-c \"sleep 1 && ls -l\""},
 	}
 
 	cases := []struct {
