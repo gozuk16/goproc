@@ -115,7 +115,8 @@ func GetProcess(pid int) (*Process, error) {
 		return ret, err
 	}
 
-	cpupercent, err := p.CPUPercent()
+	//cpupercent, err := p.CPUPercent()
+	cpupercent, err := getCPUPercent(p)
 	if err != nil {
 		log.Printf("error: %v, get process.CPUPercent: %v", ret.Name, err)
 		ret.CpuPercent = 0

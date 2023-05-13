@@ -1,11 +1,12 @@
 package goproc
 
 import (
-	"log"
+	"math"
 	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
 )
@@ -19,17 +20,31 @@ func setService(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
 
+func getCPUPercent(p *process.Process) (float64, error) {
+	// CPUPercent()はタスクマネージャーやtopと違う。同じような値はPercent()で取れる(https://github.com/shirou/gopsutil/issues/1006)
+	// Macの標準は5秒更新なので合わせたいけど、5秒ブロッキングしてしまうので1秒にする
+	cpupercent, err := p.Percent(1 * time.Second)
+	if err != nil {
+		return 0, err
+	} else {
+		// 小数点一桁で返す。Macのアクティビティモニタはコア毎のCPU使用率が出るのでこのまま返せばよい
+		return math.Round(cpupercent*10) / 10, nil
+	}
+}
+
+// GetEnviron 環境変数取得。MacだとEnviron()でnot implemented yetになるので自前で実装する
 func GetEnviron(p *process.Process) ([]string, error) {
 	result, err := exec.Command("ps", "-p", strconv.Itoa(int(p.Pid)), "-Eww", "-o", "command").Output()
 	if err != nil {
-		log.Printf("getEnviron: %v", err)
-		return nil, nil
+		//log.Printf("getEnviron: %v", err)
+		return nil, err
 	}
 	s := strings.Split(string(result), "\n")
 	envs := getEnvironFromPsCommand(s[1])
 	return envs, nil
 }
 
+// getEnvironFromPsCommand Macのpsコマンドの戻り値をパースして返す
 func getEnvironFromPsCommand(str string) []string {
 	//log.Printf("= %d, %s", strings.Count(str, "="), str)
 	var envs []string
